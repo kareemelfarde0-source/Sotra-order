@@ -7,8 +7,8 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.media.Ringtone
 import android.media.RingtoneManager
+import android.media.ToneGenerator
 import android.os.Build
-import android.os.CombinedVibration
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -114,12 +114,12 @@ class OrderSoundManager(private val context: Context) {
     private fun triggerVibration() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val pattern = longArrayOf(0, 300, 150, 300)
+                val pattern = longArrayOf(0, 350, 150, 350)
                 val effect = VibrationEffect.createWaveform(pattern, -1)
                 vibrator?.vibrate(effect)
             } else {
                 @Suppress("DEPRECATION")
-                vibrator?.vibrate(longArrayOf(0, 300, 150, 300), -1)
+                vibrator?.vibrate(longArrayOf(0, 350, 150, 350), -1)
             }
         } catch (e: Exception) {
             Log.e("OrderSoundManager", "Vibrate error", e)
@@ -127,49 +127,70 @@ class OrderSoundManager(private val context: Context) {
     }
 
     private suspend fun playSoundSequence(option: RingtoneOption, volume: Float) {
-        when (option) {
-            RingtoneOption.CASH_REGISTER -> {
-                // Play "Ka-Ching / Cash Register" ding-dong sequence: 880Hz -> 1320Hz -> 1760Hz
-                playTone(880.0, 120, volume)
-                delay(60)
-                playTone(1320.0, 150, volume)
-                delay(60)
-                playTone(1760.0, 350, volume)
-            }
-            RingtoneOption.URGENT_ALARM -> {
-                // Play urgent siren warble
-                playTone(950.0, 180, volume)
-                delay(40)
-                playTone(1250.0, 180, volume)
-                delay(40)
-                playTone(950.0, 180, volume)
-                delay(40)
-                playTone(1400.0, 260, volume)
-            }
-            RingtoneOption.STORE_BELL -> {
-                // Play classic double store entry chime (like high frequency brass bell)
-                playTone(1046.5, 220, volume) // C6
-                delay(90)
-                playTone(1318.5, 450, volume) // E6
-            }
-            RingtoneOption.DIGITAL_CHIME -> {
-                // Play cheerful modern electronic melody: G5 -> C6 -> E6 -> G6
-                playTone(784.0, 100, volume)
-                delay(40)
-                playTone(1046.5, 100, volume)
-                delay(40)
-                playTone(1318.5, 100, volume)
-                delay(40)
-                playTone(1568.0, 300, volume)
-            }
-            RingtoneOption.SYSTEM_DEFAULT -> {
-                try {
-                    systemRingtone?.play()
-                    delay(1500)
-                } catch (e: Exception) {
-                    playTone(1000.0, 400, volume)
+        try {
+            when (option) {
+                RingtoneOption.CASH_REGISTER -> {
+                    // Play "Ka-Ching / Cash Register" ding-dong sequence: 880Hz -> 1320Hz -> 1760Hz
+                    playTone(880.0, 120, volume)
+                    delay(60)
+                    playTone(1320.0, 150, volume)
+                    delay(60)
+                    playTone(1760.0, 350, volume)
+                }
+                RingtoneOption.URGENT_ALARM -> {
+                    // Play urgent siren warble
+                    playTone(950.0, 180, volume)
+                    delay(40)
+                    playTone(1250.0, 180, volume)
+                    delay(40)
+                    playTone(950.0, 180, volume)
+                    delay(40)
+                    playTone(1400.0, 260, volume)
+                }
+                RingtoneOption.STORE_BELL -> {
+                    // Play classic double store entry chime (like high frequency brass bell)
+                    playTone(1046.5, 220, volume) // C6
+                    delay(90)
+                    playTone(1318.5, 450, volume) // E6
+                }
+                RingtoneOption.DIGITAL_CHIME -> {
+                    // Play cheerful modern electronic melody: G5 -> C6 -> E6 -> G6
+                    playTone(784.0, 100, volume)
+                    delay(40)
+                    playTone(1046.5, 100, volume)
+                    delay(40)
+                    playTone(1318.5, 100, volume)
+                    delay(40)
+                    playTone(1568.0, 300, volume)
+                }
+                RingtoneOption.SYSTEM_DEFAULT -> {
+                    try {
+                        systemRingtone?.play()
+                        delay(1200)
+                    } catch (e: Exception) {
+                        playTone(1000.0, 400, volume)
+                    }
                 }
             }
+        } catch (e: Exception) {
+            Log.e("OrderSoundManager", "Error in playSoundSequence", e)
+            playFallbackTone()
+        }
+    }
+
+    /**
+     * Fallback hardware tone generator using Android ToneGenerator
+     */
+    private fun playFallbackTone() {
+        try {
+            val tg = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+            tg.startTone(ToneGenerator.TONE_PROP_BEEP, 300)
+            coroutineScope.launch {
+                delay(350)
+                tg.release()
+            }
+        } catch (e: Exception) {
+            Log.e("OrderSoundManager", "Fallback tone error", e)
         }
     }
 
@@ -190,7 +211,7 @@ class OrderSoundManager(private val context: Context) {
                 i > numSamples - (sampleRate * 0.04) -> (numSamples - i) / (sampleRate * 0.04) // 40ms decay
                 else -> 1.0
             }
-            val sample = sin(2.0 * Math.PI * freqHz * time) * envelope * Short.MAX_VALUE * volume.coerceIn(0.1f, 1.0f)
+            val sample = sin(2.0 * Math.PI * freqHz * time) * envelope * Short.MAX_VALUE * volume.coerceIn(0.2f, 1.0f)
             generatedSnd[i] = sample.toInt().toShort()
         }
 
@@ -198,7 +219,7 @@ class OrderSoundManager(private val context: Context) {
             val audioTrack = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
@@ -227,7 +248,8 @@ class OrderSoundManager(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
-            Log.e("OrderSoundManager", "AudioTrack play error", e)
+            Log.e("OrderSoundManager", "AudioTrack error, using ToneGenerator fallback", e)
+            playFallbackTone()
         }
     }
 }

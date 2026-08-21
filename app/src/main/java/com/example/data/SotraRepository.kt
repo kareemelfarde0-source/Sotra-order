@@ -56,6 +56,9 @@ class SotraRepository(private val context: Context) {
     private val _soundSettings = MutableStateFlow(AppSoundSettings())
     val soundSettings: StateFlow<AppSoundSettings> = _soundSettings.asStateFlow()
 
+    private val _wholesalePrices = MutableStateFlow<Map<String, Double>>(emptyMap())
+    val wholesalePrices: StateFlow<Map<String, Double>> = _wholesalePrices.asStateFlow()
+
     private val _isConnected = MutableStateFlow(true)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
@@ -98,6 +101,21 @@ class SotraRepository(private val context: Context) {
             instaPayAccountName = prefs.getString("ip_name", "سترة فاشون") ?: "سترة فاشون",
             instaPayInstructionsAr = prefs.getString("ip_inst", "برجاء إرسال مبلغ الشحن عبر تطبيق إنستاباي مع كتابة رقم الطلب.") ?: ""
         )
+
+        // Load cached wholesale prices
+        try {
+            val wholesaleJson = prefs.getString("wholesale_prices_map", "{}") ?: "{}"
+            val jsonObj = JSONObject(wholesaleJson)
+            val map = mutableMapOf<String, Double>()
+            val keys = jsonObj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                map[k] = jsonObj.optDouble(k, 0.0)
+            }
+            _wholesalePrices.value = map
+        } catch (e: Exception) {
+            Log.w("SotraRepository", "Wholesale prices load note: ${e.message}")
+        }
     }
 
     fun updateSoundSettings(newSettings: AppSoundSettings) {
@@ -217,7 +235,7 @@ class SotraRepository(private val context: Context) {
             Log.w("SotraRepository", "Firestore sync check: ${e.message}")
         }
 
-        // 3. Sync Settings from Firebase Realtime Database
+        // 3. Sync Settings & Wholesale prices from Firebase Realtime Database
         try {
             val paymentUrl = "$FIREBASE_RTDB_URL/settings/payment.json?key=$FIREBASE_API_KEY"
             val req = Request.Builder().url(paymentUrl).get().build()
@@ -226,22 +244,65 @@ class SotraRepository(private val context: Context) {
                     val body = response.body?.string()
                     if (!body.isNullOrBlank() && body != "null") {
                         val pObj = JSONObject(body)
-                        _paymentConfig.value = StorePaymentConfig(
-                            vodafoneCashEnabled = pObj.optBoolean("vodafoneCashEnabled", true),
-                            vodafoneCashNumber = pObj.optString("vodafoneCashNumber", "01098765432"),
-                            vodafoneCashAccountName = pObj.optString("vodafoneCashAccountName", "سترة فاشون للملابس"),
-                            vodafoneCashInstructionsAr = pObj.optString("vodafoneCashInstructionsAr", ""),
-                            instaPayEnabled = pObj.optBoolean("instaPayEnabled", true),
-                            instaPayId = pObj.optString("instaPayId", "sotra.fashion@instapay"),
-                            instaPayAccountName = pObj.optString("instaPayAccountName", "سترة فاشون"),
-                            instaPayInstructionsAr = pObj.optString("instaPayInstructionsAr", ""),
+                        val rVcNumber = getStringFromObject(pObj, "vodafoneCashNumber", "vodafone_cash_number", "vodafoneNumber", "vodafonePhone", "number", "walletNumber")
+                        val rVcName = getStringFromObject(pObj, "vodafoneCashAccountName", "vodafone_cash_account_name", "vodafoneName", "accountName")
+                        val rVcInst = getStringFromObject(pObj, "vodafoneCashInstructionsAr", "vodafone_cash_instructions_ar", "instructions", "instructionsAr")
+                        val rIpId = getStringFromObject(pObj, "instaPayId", "instapay_id", "instapayId", "ipa", "address", "id")
+                        val rIpName = getStringFromObject(pObj, "instaPayAccountName", "instapay_account_name", "instaPayName")
+                        val rIpInst = getStringFromObject(pObj, "instaPayInstructionsAr", "instapay_instructions_ar")
+
+                        val current = _paymentConfig.value
+                        val updated = current.copy(
+                            vodafoneCashEnabled = if (pObj.has("vodafoneCashEnabled")) pObj.optBoolean("vodafoneCashEnabled") else (pObj.optBoolean("vodafone_cash_enabled", current.vodafoneCashEnabled)),
+                            vodafoneCashNumber = if (rVcNumber.isNotBlank()) rVcNumber else current.vodafoneCashNumber,
+                            vodafoneCashAccountName = if (rVcName.isNotBlank()) rVcName else current.vodafoneCashAccountName,
+                            vodafoneCashInstructionsAr = if (rVcInst.isNotBlank()) rVcInst else current.vodafoneCashInstructionsAr,
+                            instaPayEnabled = if (pObj.has("instaPayEnabled")) pObj.optBoolean("instaPayEnabled") else (pObj.optBoolean("instapay_enabled", current.instaPayEnabled)),
+                            instaPayId = if (rIpId.isNotBlank()) rIpId else current.instaPayId,
+                            instaPayAccountName = if (rIpName.isNotBlank()) rIpName else current.instaPayAccountName,
+                            instaPayInstructionsAr = if (rIpInst.isNotBlank()) rIpInst else current.instaPayInstructionsAr,
                             advanceShippingFeeOnly = pObj.optBoolean("advanceShippingFeeOnly", true)
                         )
+                        _paymentConfig.value = updated
+                        // Persist to local prefs
+                        prefs.edit()
+                            .putBoolean("vc_enabled", updated.vodafoneCashEnabled)
+                            .putString("vc_number", updated.vodafoneCashNumber)
+                            .putString("vc_name", updated.vodafoneCashAccountName)
+                            .putString("vc_inst", updated.vodafoneCashInstructionsAr)
+                            .putBoolean("ip_enabled", updated.instaPayEnabled)
+                            .putString("ip_id", updated.instaPayId)
+                            .putString("ip_name", updated.instaPayAccountName)
+                            .putString("ip_inst", updated.instaPayInstructionsAr)
+                            .apply()
                     }
                 }
             }
         } catch (e: Exception) {
             Log.w("SotraRepository", "Payment settings sync note: ${e.message}")
+        }
+
+        // 4. Sync Wholesale prices from Firebase if available
+        try {
+            val wholesaleUrl = "$FIREBASE_RTDB_URL/settings/wholesale_prices.json?key=$FIREBASE_API_KEY"
+            val reqW = Request.Builder().url(wholesaleUrl).get().build()
+            client.newCall(reqW).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank() && body != "null") {
+                        val wObj = JSONObject(body)
+                        val map = _wholesalePrices.value.toMutableMap()
+                        val keys = wObj.keys()
+                        while (keys.hasNext()) {
+                            val k = keys.next()
+                            map[k] = wObj.optDouble(k, map[k] ?: 0.0)
+                        }
+                        _wholesalePrices.value = map
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("SotraRepository", "Wholesale prices sync note: ${e.message}")
         }
 
         _isConnected.value = syncSuccessful || _orders.value.isNotEmpty()
@@ -522,10 +583,11 @@ class SotraRepository(private val context: Context) {
                 val resolvedRemaining = if (rawRemaining > 0.0) rawRemaining else (resolvedTotal - resolvedAdvance).coerceAtLeast(0.0)
 
                 val isNew = isInitialLoadComplete && !knownOrderIds.contains(orderId) &&
-                        (status == OrderStatus.PAYMENT_CONFIRMED || status == OrderStatus.PENDING_PAYMENT)
+                        (status == OrderStatus.ORDER_RECEIVED || status == OrderStatus.PAYMENT_CONFIRMED)
 
                 val parsedOrder = Order(
                     orderId = orderId,
+                    docId = key,
                     customer = customerInfo,
                     items = itemsList,
                     subtotal = resolvedSubtotal,
@@ -585,7 +647,7 @@ class SotraRepository(private val context: Context) {
                 val docId = name.substringAfterLast("/")
 
                 val orderId = getFirestoreString(fields, "orderId", "id", "orderNumber", "order_id").ifBlank { docId }
-                val statusStr = getFirestoreString(fields, "trackingStatus", "status", "orderStatus", "state").ifBlank { "payment_confirmed" }
+                val statusStr = getFirestoreString(fields, "trackingStatus", "status", "orderStatus", "state").ifBlank { "order_received" }
                 val status = OrderStatus.fromCode(statusStr)
 
                 // Financial values
@@ -671,10 +733,11 @@ class SotraRepository(private val context: Context) {
                 val resolvedRemaining = if (rawRemaining > 0.0) rawRemaining else (resolvedTotal - resolvedAdvance).coerceAtLeast(0.0)
 
                 val isNew = isInitialLoadComplete && !knownOrderIds.contains(orderId) &&
-                        (status == OrderStatus.PAYMENT_CONFIRMED || status == OrderStatus.PENDING_PAYMENT)
+                        (status == OrderStatus.ORDER_RECEIVED || status == OrderStatus.PAYMENT_CONFIRMED)
 
                 val parsedOrder = Order(
                     orderId = orderId,
+                    docId = docId,
                     customer = customerInfo,
                     items = itemsList,
                     subtotal = resolvedSubtotal,
@@ -721,7 +784,7 @@ class SotraRepository(private val context: Context) {
      */
     fun acknowledgeOrder(orderId: String) {
         val currentList = _orders.value.toMutableList()
-        val index = currentList.indexOfFirst { it.orderId == orderId }
+        val index = currentList.indexOfFirst { it.orderId == orderId || it.docId == orderId }
         if (index != -1) {
             currentList[index] = currentList[index].copy(isAcknowledged = true)
             _orders.value = currentList
@@ -730,14 +793,19 @@ class SotraRepository(private val context: Context) {
 
     /**
      * Update order status on local state and push update to Firebase (Firestore & RTDB).
+     * Synchronizes all status fields (trackingStatus, status, orderStatus, state, stage, statusText, statusAr)
+     * so that customer portal and store dashboards update in real time.
      */
     fun updateOrderStatus(orderId: String, newStatus: OrderStatus) {
         val currentList = _orders.value.toMutableList()
-        val index = currentList.indexOfFirst { it.orderId == orderId }
+        val index = currentList.indexOfFirst { it.orderId == orderId || it.docId == orderId }
         val now = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
 
+        var targetDocId = orderId
         if (index != -1) {
-            currentList[index] = currentList[index].copy(
+            val existing = currentList[index]
+            targetDocId = existing.docId.ifBlank { existing.orderId }
+            currentList[index] = existing.copy(
                 trackingStatus = newStatus,
                 updatedAt = now,
                 isAcknowledged = true
@@ -748,35 +816,69 @@ class SotraRepository(private val context: Context) {
 
         // Push update to Firebase in background
         coroutineScope.launch {
-            // Firestore update
+            // 1. RTDB Update
             try {
-                val url = "$FIRESTORE_BASE_URL/orders/$orderId?key=$FIREBASE_API_KEY&updateMask.fieldPaths=trackingStatus&updateMask.fieldPaths=updatedAt"
-                val json = JSONObject().apply {
-                    val fields = JSONObject().apply {
-                        put("trackingStatus", JSONObject().put("stringValue", newStatus.code))
-                        put("updatedAt", JSONObject().put("stringValue", now))
-                    }
-                    put("fields", fields)
-                }
-                val body = json.toString().toRequestBody("application/json".toMediaType())
-                val request = Request.Builder().url(url).patch(body).build()
-                client.newCall(request).execute().close()
-            } catch (e: Exception) {
-                Log.w("SotraRepository", "Firestore status push note: ${e.message}")
-            }
-
-            // RTDB update
-            try {
-                val rtdbUrl = "$FIREBASE_RTDB_URL/orders/$orderId.json?key=$FIREBASE_API_KEY"
                 val rtdbJson = JSONObject().apply {
                     put("trackingStatus", newStatus.code)
+                    put("status", newStatus.code)
+                    put("orderStatus", newStatus.code)
+                    put("stage", newStatus.code)
+                    put("state", newStatus.code)
+                    put("currentStatus", newStatus.code)
+                    put("stageNumber", newStatus.stageNumber)
+                    put("trackingStatusText", newStatus.labelAr)
+                    put("statusText", newStatus.labelAr)
+                    put("statusAr", newStatus.labelAr)
+                    put("statusLabel", newStatus.labelAr)
+                    put("statusTitle", newStatus.labelAr)
                     put("updatedAt", now)
                 }
                 val rtdbBody = rtdbJson.toString().toRequestBody("application/json".toMediaType())
-                val rtdbRequest = Request.Builder().url(rtdbUrl).patch(rtdbBody).build()
-                client.newCall(rtdbRequest).execute().close()
+
+                val rtdbUrl1 = "$FIREBASE_RTDB_URL/orders/$targetDocId.json?key=$FIREBASE_API_KEY"
+                client.newCall(Request.Builder().url(rtdbUrl1).patch(rtdbBody).build()).execute().close()
+
+                if (targetDocId != orderId && orderId.isNotBlank()) {
+                    val rtdbUrl2 = "$FIREBASE_RTDB_URL/orders/$orderId.json?key=$FIREBASE_API_KEY"
+                    client.newCall(Request.Builder().url(rtdbUrl2).patch(rtdbBody).build()).execute().close()
+                }
             } catch (e: Exception) {
                 Log.w("SotraRepository", "RTDB status push note: ${e.message}")
+            }
+
+            // 2. Firestore Update
+            try {
+                val fields = JSONObject().apply {
+                    put("trackingStatus", JSONObject().put("stringValue", newStatus.code))
+                    put("status", JSONObject().put("stringValue", newStatus.code))
+                    put("orderStatus", JSONObject().put("stringValue", newStatus.code))
+                    put("stage", JSONObject().put("stringValue", newStatus.code))
+                    put("state", JSONObject().put("stringValue", newStatus.code))
+                    put("currentStatus", JSONObject().put("stringValue", newStatus.code))
+                    put("stageNumber", JSONObject().put("integerValue", "${newStatus.stageNumber}"))
+                    put("trackingStatusText", JSONObject().put("stringValue", newStatus.labelAr))
+                    put("statusText", JSONObject().put("stringValue", newStatus.labelAr))
+                    put("statusAr", JSONObject().put("stringValue", newStatus.labelAr))
+                    put("statusLabel", JSONObject().put("stringValue", newStatus.labelAr))
+                    put("statusTitle", JSONObject().put("stringValue", newStatus.labelAr))
+                    put("updatedAt", JSONObject().put("stringValue", now))
+                }
+                val firestoreJson = JSONObject().apply {
+                    put("fields", fields)
+                }
+                val firestoreBody = firestoreJson.toString().toRequestBody("application/json".toMediaType())
+
+                val queryMask = "updateMask.fieldPaths=trackingStatus&updateMask.fieldPaths=status&updateMask.fieldPaths=orderStatus&updateMask.fieldPaths=stage&updateMask.fieldPaths=state&updateMask.fieldPaths=currentStatus&updateMask.fieldPaths=stageNumber&updateMask.fieldPaths=trackingStatusText&updateMask.fieldPaths=statusText&updateMask.fieldPaths=statusAr&updateMask.fieldPaths=statusLabel&updateMask.fieldPaths=statusTitle&updateMask.fieldPaths=updatedAt"
+
+                val firestoreUrl1 = "$FIRESTORE_BASE_URL/orders/$targetDocId?key=$FIREBASE_API_KEY&$queryMask"
+                client.newCall(Request.Builder().url(firestoreUrl1).patch(firestoreBody).build()).execute().close()
+
+                if (targetDocId != orderId && orderId.isNotBlank()) {
+                    val firestoreUrl2 = "$FIRESTORE_BASE_URL/orders/$orderId?key=$FIREBASE_API_KEY&$queryMask"
+                    client.newCall(Request.Builder().url(firestoreUrl2).patch(firestoreBody).build()).execute().close()
+                }
+            } catch (e: Exception) {
+                Log.w("SotraRepository", "Firestore status push note: ${e.message}")
             }
         }
     }
@@ -794,26 +896,104 @@ class SotraRepository(private val context: Context) {
             .putString("ip_inst", config.instaPayInstructionsAr)
             .apply()
 
-        // Sync payment settings to Firebase RTDB
+        // Sync payment settings to Firebase RTDB & Firestore under all common store endpoints
         coroutineScope.launch {
+            val now = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
+            
+            // 1. RTDB Payload with full aliases for compatibility with all web and client versions
             try {
-                val url = "$FIREBASE_RTDB_URL/settings/payment.json?key=$FIREBASE_API_KEY"
                 val json = JSONObject().apply {
                     put("vodafoneCashEnabled", config.vodafoneCashEnabled)
+                    put("vodafone_cash_enabled", config.vodafoneCashEnabled)
                     put("vodafoneCashNumber", config.vodafoneCashNumber)
+                    put("vodafone_cash_number", config.vodafoneCashNumber)
+                    put("vodafoneNumber", config.vodafoneCashNumber)
+                    put("vodafonePhone", config.vodafoneCashNumber)
+                    put("vodafone_phone", config.vodafoneCashNumber)
                     put("vodafoneCashAccountName", config.vodafoneCashAccountName)
+                    put("vodafone_cash_account_name", config.vodafoneCashAccountName)
                     put("vodafoneCashInstructionsAr", config.vodafoneCashInstructionsAr)
+                    put("vodafone_cash_instructions_ar", config.vodafoneCashInstructionsAr)
                     put("instaPayEnabled", config.instaPayEnabled)
+                    put("instapay_enabled", config.instaPayEnabled)
                     put("instaPayId", config.instaPayId)
+                    put("instapay_id", config.instaPayId)
+                    put("instaPayAddress", config.instaPayId)
                     put("instaPayAccountName", config.instaPayAccountName)
+                    put("instapay_account_name", config.instaPayAccountName)
                     put("instaPayInstructionsAr", config.instaPayInstructionsAr)
+                    put("instapay_instructions_ar", config.instaPayInstructionsAr)
                     put("advanceShippingFeeOnly", config.advanceShippingFeeOnly)
+                    put("updatedAt", now)
                 }
                 val body = json.toString().toRequestBody("application/json".toMediaType())
-                val request = Request.Builder().url(url).put(body).build()
-                client.newCall(request).execute().close()
+
+                val paths = listOf("/settings/payment.json", "/payment.json", "/payment_settings.json", "/config/payment.json")
+                for (p in paths) {
+                    try {
+                        val url = "$FIREBASE_RTDB_URL$p?key=$FIREBASE_API_KEY"
+                        client.newCall(Request.Builder().url(url).put(body).build()).execute().close()
+                    } catch (e: Exception) {
+                        // ignore individual path failures
+                    }
+                }
             } catch (e: Exception) {
-                Log.w("SotraRepository", "Payment sync to Firebase note: ${e.message}")
+                Log.w("SotraRepository", "Payment RTDB sync note: ${e.message}")
+            }
+
+            // 2. Firestore Sync
+            try {
+                val fields = JSONObject().apply {
+                    put("vodafoneCashEnabled", JSONObject().put("booleanValue", config.vodafoneCashEnabled))
+                    put("vodafoneCashNumber", JSONObject().put("stringValue", config.vodafoneCashNumber))
+                    put("vodafone_cash_number", JSONObject().put("stringValue", config.vodafoneCashNumber))
+                    put("vodafoneCashAccountName", JSONObject().put("stringValue", config.vodafoneCashAccountName))
+                    put("vodafoneCashInstructionsAr", JSONObject().put("stringValue", config.vodafoneCashInstructionsAr))
+                    put("instaPayEnabled", JSONObject().put("booleanValue", config.instaPayEnabled))
+                    put("instaPayId", JSONObject().put("stringValue", config.instaPayId))
+                    put("instapay_id", JSONObject().put("stringValue", config.instaPayId))
+                    put("instaPayAccountName", JSONObject().put("stringValue", config.instaPayAccountName))
+                    put("instaPayInstructionsAr", JSONObject().put("stringValue", config.instaPayInstructionsAr))
+                    put("advanceShippingFeeOnly", JSONObject().put("booleanValue", config.advanceShippingFeeOnly))
+                    put("updatedAt", JSONObject().put("stringValue", now))
+                }
+                val firestoreJson = JSONObject().put("fields", fields)
+                val firestoreBody = firestoreJson.toString().toRequestBody("application/json".toMediaType())
+
+                val fsUrls = listOf(
+                    "$FIRESTORE_BASE_URL/settings/payment?key=$FIREBASE_API_KEY",
+                    "$FIRESTORE_BASE_URL/config/payment?key=$FIREBASE_API_KEY"
+                )
+                for (fUrl in fsUrls) {
+                    try {
+                        client.newCall(Request.Builder().url(fUrl).patch(firestoreBody).build()).execute().close()
+                    } catch (e: Exception) {
+                        // ignore
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("SotraRepository", "Payment Firestore sync note: ${e.message}")
+            }
+        }
+    }
+
+    fun setWholesalePrice(productKey: String, price: Double) {
+        val map = _wholesalePrices.value.toMutableMap()
+        map[productKey] = price
+        _wholesalePrices.value = map
+
+        val jsonObj = JSONObject()
+        map.forEach { (k, v) -> jsonObj.put(k, v) }
+        prefs.edit().putString("wholesale_prices_map", jsonObj.toString()).apply()
+
+        // Sync wholesale prices to RTDB
+        coroutineScope.launch {
+            try {
+                val url = "$FIREBASE_RTDB_URL/settings/wholesale_prices.json?key=$FIREBASE_API_KEY"
+                val body = jsonObj.toString().toRequestBody("application/json".toMediaType())
+                client.newCall(Request.Builder().url(url).put(body).build()).execute().close()
+            } catch (e: Exception) {
+                Log.w("SotraRepository", "Wholesale price sync note: ${e.message}")
             }
         }
     }

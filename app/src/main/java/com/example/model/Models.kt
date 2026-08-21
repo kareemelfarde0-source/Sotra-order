@@ -1,24 +1,29 @@
 package com.example.model
 
-import androidx.compose.ui.graphics.Color
-
 enum class OrderStatus(
     val code: String,
     val labelAr: String,
     val badgeBgColor: Long,
-    val badgeTextColor: Long
+    val badgeTextColor: Long,
+    val stageNumber: Int
 ) {
-    PENDING_PAYMENT("pending_payment", "في انتظار الدفع", 0xFFFEF3C7, 0xFFB45309),
-    PAYMENT_CONFIRMED("payment_confirmed", "تم تأكيد الدفع (جديد)", 0xFFDBEAFE, 0xFF1E40AF),
-    PREPARING("preparing", "قيد التجهيز", 0xFFE0E7FF, 0xFF1E3A8A),
-    SHIPPED("shipped", "تم الشحن", 0xFFF3E8FF, 0xFF3730A3),
-    OUT_FOR_DELIVERY("out_for_delivery", "في الطريق للعميل", 0xFFFAE8FF, 0xFF6B21A8),
-    DELIVERED("delivered", "تم التوصيل بنجاح", 0xFFD1FAE5, 0xFF065F46),
-    CANCELLED("cancelled", "ملغي / مسترجع", 0xFFFEE2E2, 0xFF991B1B);
+    ORDER_RECEIVED("order_received", "تم استلام الطلب", 0xFFFEF3C7, 0xFFB45309, 1),
+    PAYMENT_CONFIRMED("payment_confirmed", "تأكيد الدفع والتجهيز", 0xFFDBEAFE, 0xFF1E40AF, 2),
+    SHIPPED("shipped", "تم تسليمه للشحن", 0xFFF3E8FF, 0xFF3730A3, 3),
+    DELIVERED("delivered", "تم التوصيل بنجاح", 0xFFD1FAE5, 0xFF065F46, 4),
+    CANCELLED("cancelled", "تم إلغاء الطلب", 0xFFFEE2E2, 0xFF991B1B, 0);
 
     companion object {
         fun fromCode(code: String): OrderStatus {
-            return entries.find { it.code.equals(code, ignoreCase = true) } ?: PAYMENT_CONFIRMED
+            val normalized = code.trim().lowercase()
+            return when {
+                normalized.contains("received") || normalized.contains("استلام") || normalized == "1" || normalized.contains("pending") -> ORDER_RECEIVED
+                normalized.contains("confirmed") || normalized.contains("preparing") || normalized.contains("تأكيد") || normalized.contains("تجهيز") || normalized == "2" || normalized.contains("processing") || normalized.contains("paid") -> PAYMENT_CONFIRMED
+                normalized.contains("shipped") || normalized.contains("شحن") || normalized.contains("تسليم") || normalized.contains("delivery") || normalized == "3" || normalized.contains("transit") || normalized.contains("carrier") -> SHIPPED
+                normalized.contains("delivered") || normalized.contains("توصيل") || normalized.contains("completed") || normalized.contains("done") || normalized == "4" || normalized.contains("نجاح") -> DELIVERED
+                normalized.contains("cancel") || normalized.contains("إلغاء") || normalized.contains("الغاء") || normalized.contains("مسترجع") || normalized == "0" -> CANCELLED
+                else -> entries.find { it.code.equals(normalized, ignoreCase = true) } ?: ORDER_RECEIVED
+            }
         }
     }
 }
@@ -69,6 +74,7 @@ data class CustomerInfo(
 
 data class Order(
     val orderId: String = "",
+    val docId: String = "",
     val customer: CustomerInfo = CustomerInfo(),
     val items: List<OrderItem> = emptyList(),
     val subtotal: Double = 0.0,
@@ -127,3 +133,57 @@ data class AppSoundSettings(
     val alarmVolume: Float = 0.9f,
     val vibrationEnabled: Boolean = true
 )
+
+enum class SalesTimeFilter(val id: String, val titleAr: String) {
+    TODAY("today", "اليوم"),
+    YESTERDAY("yesterday", "أمس"),
+    LAST_7_DAYS("7_days", "آخر 7 أيام"),
+    THIS_MONTH("this_month", "هذا الشهر (30 يوم)"),
+    ALL_TIME("all", "جميع الأوقات")
+}
+
+data class ProductSalesSummary(
+    val productKey: String,
+    val titleAr: String,
+    val color: String,
+    val size: String,
+    val categoryAr: String,
+    val totalQuantitySold: Int,
+    val unitSellingPrice: Double,
+    val unitWholesalePrice: Double,
+    val totalRevenue: Double = totalQuantitySold * unitSellingPrice,
+    val totalCost: Double = totalQuantitySold * unitWholesalePrice,
+    val netProfit: Double = totalRevenue - totalCost,
+    val profitMarginPercent: Double = if (totalRevenue > 0) ((netProfit / totalRevenue) * 100.0) else 0.0,
+    val ordersCount: Int = 1,
+    val lastSoldDate: String = ""
+)
+
+object CategoryHelper {
+    val ALL_CATEGORIES = listOf(
+        "الكل",
+        "فساتين ودريسات",
+        "عبايات وكيمونو",
+        "بلوزات وقمصان",
+        "أطقم وسوتس",
+        "بناطيل وجيب",
+        "كارديجان وجواكت",
+        "طرح وإكسسوارات",
+        "أزياء متنوعة"
+    )
+
+    fun detectCategory(title: String): String {
+        val t = title.lowercase()
+        return when {
+            t.contains("فستان") || t.contains("دريس") || t.contains("dress") -> "فساتين ودريسات"
+            t.contains("عباية") || t.contains("عبايه") || t.contains("كيمونو") || t.contains("abaya") -> "عبايات وكيمونو"
+            t.contains("بلوزة") || t.contains("بلوزه") || t.contains("توب") || t.contains("قميص") || t.contains("شميز") || t.contains("blouse") || t.contains("shirt") -> "بلوزات وقمصان"
+            t.contains("طقم") || t.contains("سوت") || t.contains("بدلة") || t.contains("بدله") || t.contains("suit") || t.contains("set") -> "أطقم وسوتس"
+            t.contains("بنطلون") || t.contains("جيب") || t.contains("تنورة") || t.contains("تنوره") || t.contains("pants") || t.contains("skirt") -> "بناطيل وجيب"
+            t.contains("كارديجان") || t.contains("جاكيت") || t.contains("كاردي") || t.contains("بالطو") || t.contains("jacket") || t.contains("cardigan") -> "كارديجان وجواكت"
+            t.contains("طرحة") || t.contains("طرحه") || t.contains("شال") || t.contains("سكارف") || t.contains("حجاب") || t.contains("إكسسوار") || t.contains("حزام") -> "طرح وإكسسوارات"
+            else -> "أزياء متنوعة"
+        }
+    }
+}
+

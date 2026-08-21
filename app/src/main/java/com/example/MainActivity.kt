@@ -62,14 +62,26 @@ fun SotraAppMain(viewModel: OrdersViewModel = viewModel()) {
 
     val snackbarHostState = remember { SnackbarHostState() }
 
+    var hasNotificationPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true
+            }
+        )
+    }
+
     // Request notification permission for Android 13+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { _ -> }
+    ) { isGranted ->
+        hasNotificationPermission = isGranted
+    }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            if (!hasNotificationPermission) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
@@ -84,11 +96,11 @@ fun SotraAppMain(viewModel: OrdersViewModel = viewModel()) {
 
     val tabTitles = listOf(
         "الطلبات الحالية",
+        "سجل المبيعات والأرباح",
         "أرشيف الطلبات",
         "العملاء",
         "إعدادات الدفع",
-        "تسعير الشحن",
-        "نغمات التنبيه"
+        "إعدادات المتجر والتنبيهات"
     )
 
     Scaffold(
@@ -199,10 +211,23 @@ fun SotraAppMain(viewModel: OrdersViewModel = viewModel()) {
                     )
                 )
 
-                // Tab 1: Archive
+                // Tab 1: Sales Log (سجل المبيعات)
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { viewModel.setSelectedTab(1) },
+                    icon = { Icon(Icons.Default.PointOfSale, contentDescription = "المبيعات") },
+                    label = { Text("المبيعات", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = SotraPrimary,
+                        selectedTextColor = SotraPrimary,
+                        indicatorColor = SotraPrimaryLight
+                    )
+                )
+
+                // Tab 2: Archive
+                NavigationBarItem(
+                    selected = selectedTab == 2,
+                    onClick = { viewModel.setSelectedTab(2) },
                     icon = { Icon(Icons.Default.Archive, contentDescription = "الأرشيف") },
                     label = { Text("الأرشيف", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     colors = NavigationBarItemDefaults.colors(
@@ -212,10 +237,10 @@ fun SotraAppMain(viewModel: OrdersViewModel = viewModel()) {
                     )
                 )
 
-                // Tab 2: Customers
+                // Tab 3: Customers
                 NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { viewModel.setSelectedTab(2) },
+                    selected = selectedTab == 3,
+                    onClick = { viewModel.setSelectedTab(3) },
                     icon = { Icon(Icons.Default.People, contentDescription = "العملاء") },
                     label = { Text("العملاء", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     colors = NavigationBarItemDefaults.colors(
@@ -225,10 +250,10 @@ fun SotraAppMain(viewModel: OrdersViewModel = viewModel()) {
                     )
                 )
 
-                // Tab 3: Payment Settings
+                // Tab 4: Payment Settings
                 NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { viewModel.setSelectedTab(3) },
+                    selected = selectedTab == 4,
+                    onClick = { viewModel.setSelectedTab(4) },
                     icon = { Icon(Icons.Default.Payments, contentDescription = "الدفع") },
                     label = { Text("الدفع", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     colors = NavigationBarItemDefaults.colors(
@@ -238,20 +263,7 @@ fun SotraAppMain(viewModel: OrdersViewModel = viewModel()) {
                     )
                 )
 
-                // Tab 4: Shipping Settings
-                NavigationBarItem(
-                    selected = selectedTab == 4,
-                    onClick = { viewModel.setSelectedTab(4) },
-                    icon = { Icon(Icons.Default.LocalShipping, contentDescription = "الشحن") },
-                    label = { Text("الشحن", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = SotraPrimary,
-                        selectedTextColor = SotraPrimary,
-                        indicatorColor = SotraPrimaryLight
-                    )
-                )
-
-                // Tab 5: Sound & Ringtone Settings
+                // Tab 5: Settings (Shipping & Sound Ringtone)
                 NavigationBarItem(
                     selected = selectedTab == 5,
                     onClick = { viewModel.setSelectedTab(5) },
@@ -265,10 +277,10 @@ fun SotraAppMain(viewModel: OrdersViewModel = viewModel()) {
                                 }
                             }
                         ) {
-                            Icon(Icons.Default.Notifications, contentDescription = "النغمات")
+                            Icon(Icons.Default.Settings, contentDescription = "الإعدادات")
                         }
                     },
-                    label = { Text("النغمات", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text("الإعدادات", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = SotraPrimary,
                         selectedTextColor = SotraPrimary,
@@ -300,14 +312,69 @@ fun SotraAppMain(viewModel: OrdersViewModel = viewModel()) {
                 }
             )
 
+            // NOTIFICATION PERMISSION PROMPT (If permission not granted on Android 13+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                tint = Color(0xFFB45309),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "إذن الإشعارات والأصوات مطلوب",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF92400E)
+                                )
+                                Text(
+                                    text = "لتلقي رنين وتنبيه الطلبات الجديدة فور وصولها",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFB45309)
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB45309)),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("منح الإذن", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+
             // Screen Content according to Selected Tab
             when (selectedTab) {
                 0 -> ActiveOrdersScreen(viewModel = viewModel)
-                1 -> ArchiveOrdersScreen(viewModel = viewModel)
-                2 -> CustomersScreen(viewModel = viewModel)
-                3 -> PaymentSettingsScreen(viewModel = viewModel)
-                4 -> ShippingSettingsScreen(viewModel = viewModel)
-                5 -> SoundSettingsScreen(viewModel = viewModel)
+                1 -> SalesLogScreen(viewModel = viewModel)
+                2 -> ArchiveOrdersScreen(viewModel = viewModel)
+                3 -> CustomersScreen(viewModel = viewModel)
+                4 -> PaymentSettingsScreen(viewModel = viewModel)
+                5 -> StoreSettingsScreen(viewModel = viewModel)
             }
         }
     }

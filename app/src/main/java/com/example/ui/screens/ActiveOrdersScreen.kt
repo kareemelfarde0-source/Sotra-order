@@ -43,11 +43,9 @@ fun ActiveOrdersScreen(
 
     val filterOptions = listOf(
         Pair("all", "جميع الحالات النشطة"),
-        Pair(OrderStatus.PAYMENT_CONFIRMED.code, "تم تأكيد الدفع (جديد)"),
-        Pair(OrderStatus.PENDING_PAYMENT.code, "في انتظار الدفع"),
-        Pair(OrderStatus.PREPARING.code, "قيد التجهيز"),
-        Pair(OrderStatus.SHIPPED.code, "تم الشحن"),
-        Pair(OrderStatus.OUT_FOR_DELIVERY.code, "في الطريق للعميل")
+        Pair(OrderStatus.ORDER_RECEIVED.code, "تم استلام الطلب (1)"),
+        Pair(OrderStatus.PAYMENT_CONFIRMED.code, "تأكيد الدفع والتجهيز (2)"),
+        Pair(OrderStatus.SHIPPED.code, "تم تسليمه للشحن (3)")
     )
 
     Column(
@@ -100,15 +98,34 @@ fun ActiveOrdersScreen(
                     containerColor = SotraPrimary.copy(alpha = 0.12f),
                     contentColor = SotraPrimary
                 ),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Sync,
                     contentDescription = "مزامنة مع فيرباس",
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("مزامنة", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // Test Alarm & Notification Button
+            FilledTonalButton(
+                onClick = { viewModel.testNotificationAndSound() },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = Color(0xFFFEF3C7),
+                    contentColor = Color(0xFFB45309)
+                ),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.NotificationsActive,
+                    contentDescription = "تجربة التنبيه والصوت",
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("تجربة التنبيه", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -205,7 +222,7 @@ fun ActiveOrdersScreen(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "يمكنك الضغط على 'طلب تجريبي' لمحاكاة وصول طلب وسماع صوت التنبيه المستمر",
+                        text = "الطلبات الجديدة المضافة للمتجر ستظهر هنا فوراً مع رنين مستمر وإشعار",
                         fontSize = 12.sp,
                         color = Color(0xFF94A3B8),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
