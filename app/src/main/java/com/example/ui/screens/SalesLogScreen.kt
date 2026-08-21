@@ -43,6 +43,7 @@ fun SalesLogScreen(
     val currentCategoryFilter by viewModel.salesCategoryFilter.collectAsState()
     val searchQuery by viewModel.salesSearchQuery.collectAsState()
 
+    var isFiltersExpanded by remember { mutableStateOf(false) }
     var productForPriceEdit by remember { mutableStateOf<ProductSalesSummary?>(null) }
 
     // Aggregate statistics from current filtered list
@@ -51,6 +52,9 @@ fun SalesLogScreen(
     val totalCost = salesList.sumOf { it.totalCost }
     val netProfit = totalRevenue - totalCost
     val profitMargin = if (totalRevenue > 0) ((netProfit / totalRevenue) * 100.0) else 0.0
+
+    val activeFiltersCount = (if (currentTimeFilter != SalesTimeFilter.ALL_TIME) 1 else 0) +
+            (if (currentCategoryFilter != "الكل") 1 else 0)
 
     Column(
         modifier = modifier
@@ -62,100 +66,256 @@ fun SalesLogScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color.White)
-                .padding(bottom = 12.dp)
+                .padding(bottom = 6.dp)
         ) {
-            // Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { viewModel.setSalesSearchQuery(it) },
-                placeholder = { Text("بحث باسم القطعة، الموديل، اللون، أو المقاس...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = SotraPrimary) },
-                trailingIcon = {
-                    if (searchQuery.isNotBlank()) {
-                        IconButton(onClick = { viewModel.setSalesSearchQuery("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "مسح", tint = Color.Gray)
-                        }
-                    }
-                },
+            // Compact Search Bar & Filter Toggle Button Row
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color(0xFFF1F5F9),
-                    unfocusedContainerColor = Color(0xFFF1F5F9),
-                    focusedBorderColor = SotraPrimary,
-                    unfocusedBorderColor = Color.Transparent
-                ),
-                singleLine = true
-            )
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Smaller, Compact Search Bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { queryText -> viewModel.setSalesSearchQuery(queryText) },
+                    placeholder = { 
+                        Text(
+                            "بحث في المبيعات، الموديل...", 
+                            fontSize = 12.sp,
+                            color = Color(0xFF94A3B8)
+                        ) 
+                    },
+                    leadingIcon = { 
+                        Icon(
+                            Icons.Default.Search, 
+                            contentDescription = null, 
+                            tint = SotraPrimary, 
+                            modifier = Modifier.size(18.dp)
+                        ) 
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotBlank()) {
+                            IconButton(
+                                onClick = { viewModel.setSalesSearchQuery("") }
+                            ) {
+                                Icon(
+                                    Icons.Default.Clear, 
+                                    contentDescription = "مسح", 
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp),
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFFF1F5F9),
+                        unfocusedContainerColor = Color(0xFFF1F5F9),
+                        focusedBorderColor = SotraPrimary,
+                        unfocusedBorderColor = Color.Transparent
+                    ),
+                    singleLine = true
+                )
 
-            // 1. Time / Days Filter Chips (فلتر الأيام)
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(bottom = 4.dp)
+                // "الفلاتر" Button to toggle visibility
+                Surface(
+                    onClick = { isFiltersExpanded = !isFiltersExpanded },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isFiltersExpanded || activeFiltersCount > 0) SotraPrimary else Color(0xFFF1F5F9),
+                    modifier = Modifier.height(44.dp)
                 ) {
-                    Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = SotraPrimary, modifier = Modifier.size(16.dp))
-                    Text("فلتر الأيام والفترة الزمنية:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    SalesTimeFilter.entries.forEach { filter ->
-                        val isSelected = currentTimeFilter == filter
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.setSalesTimeFilter(filter) },
-                            label = { Text(filter.titleAr, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = SotraPrimary,
-                                selectedLabelColor = Color.White,
-                                containerColor = Color(0xFFF1F5F9),
-                                labelColor = Color(0xFF334155)
-                            ),
-                            border = null,
-                            shape = RoundedCornerShape(20.dp)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = "الفلاتر",
+                            tint = if (isFiltersExpanded || activeFiltersCount > 0) Color.White else Color(0xFF334155),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "الفلاتر",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isFiltersExpanded || activeFiltersCount > 0) Color.White else Color(0xFF334155)
+                        )
+                        if (activeFiltersCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isFiltersExpanded || activeFiltersCount > 0) Color.White else SotraPrimary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$activeFiltersCount",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isFiltersExpanded || activeFiltersCount > 0) SotraPrimary else Color.White
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = if (isFiltersExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = if (isFiltersExpanded || activeFiltersCount > 0) Color.White else Color(0xFF64748B),
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
 
-            // 2. Category / Department Filter Chips (فلتر الأقسام)
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(bottom = 4.dp)
-                ) {
-                    Icon(Icons.Default.Category, contentDescription = null, tint = SotraSecondary, modifier = Modifier.size(16.dp))
-                    Text("فلتر الأقسام والتصنيفات:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
-                }
-                Row(
+            // Collapsible Filter Area (Only shown when clicking 'الفلاتر')
+            androidx.compose.animation.AnimatedVisibility(
+                visible = isFiltersExpanded,
+                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+            ) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .background(Color(0xFFF8FAFC))
+                        .padding(vertical = 6.dp)
                 ) {
-                    CategoryHelper.ALL_CATEGORIES.forEach { category ->
-                        val isSelected = currentCategoryFilter == category
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.setSalesCategoryFilter(category) },
-                            label = { Text(category, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = SotraSecondary,
-                                selectedLabelColor = Color.White,
-                                containerColor = Color(0xFFF1F5F9),
-                                labelColor = Color(0xFF334155)
-                            ),
-                            border = null,
-                            shape = RoundedCornerShape(20.dp)
-                        )
+                    // 1. Time / Days Filter Chips (فلتر الأيام)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 3.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.CalendarMonth, 
+                                contentDescription = null, 
+                                tint = SotraPrimary, 
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                "فلتر الأيام والفترة الزمنية:", 
+                                fontSize = 11.sp, 
+                                fontWeight = FontWeight.Bold, 
+                                color = Color(0xFF475569)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            SalesTimeFilter.entries.forEach { filter ->
+                                val isSelected = currentTimeFilter == filter
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { viewModel.setSalesTimeFilter(filter) },
+                                    label = { 
+                                        Text(
+                                            filter.titleAr, 
+                                            fontSize = 11.sp, 
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        ) 
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = SotraPrimary,
+                                        selectedLabelColor = Color.White,
+                                        containerColor = Color.White,
+                                        labelColor = Color(0xFF334155)
+                                    ),
+                                    border = null,
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.height(32.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // 2. Category / Department Filter Chips (فلتر الأقسام)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 3.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Category, 
+                                contentDescription = null, 
+                                tint = SotraSecondary, 
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                "فلتر الأقسام والتصنيفات:", 
+                                fontSize = 11.sp, 
+                                fontWeight = FontWeight.Bold, 
+                                color = Color(0xFF475569)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            CategoryHelper.ALL_CATEGORIES.forEach { category ->
+                                val isSelected = currentCategoryFilter == category
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { viewModel.setSalesCategoryFilter(category) },
+                                    label = { 
+                                        Text(
+                                            category, 
+                                            fontSize = 11.sp, 
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        ) 
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = SotraSecondary,
+                                        selectedLabelColor = Color.White,
+                                        containerColor = Color.White,
+                                        labelColor = Color(0xFF334155)
+                                    ),
+                                    border = null,
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.height(32.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Reset filters button if any filter is active
+                    if (activeFiltersCount > 0) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    viewModel.setSalesTimeFilter(SalesTimeFilter.ALL_TIME)
+                                    viewModel.setSalesCategoryFilter("الكل")
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Icon(Icons.Default.ClearAll, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFDC2626))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("إعادة ضبط الفلاتر", fontSize = 11.sp, color = Color(0xFFDC2626), fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
