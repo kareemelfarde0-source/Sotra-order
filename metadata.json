@@ -1,0 +1,6 @@
+{
+  "name": "إدارة طلبات سترة فاشون",
+  "description": "لوحة إدارة وتحكم شاملة لطلبات متجر سترة فاشون مع تنبيهات صوتية مستمرة للطلبات الجديدة وتخصيص نغمات الإشعارات",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
